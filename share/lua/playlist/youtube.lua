@@ -266,7 +266,8 @@ function pick_stream( stream_map, js_url )
         local prefres = vlc.var.inherit( nil, "preferred-resolution" )
         local bestres = nil
 
-        for stream in string.gmatch( stream_map, '{(.-)}' ) do
+         for r1,r2 in string.gmatch( stream_map, '{(.-)"signatureCipher":"(.-)"}' ) do
+			         stream= string.format('%q\"signatureCipher\":%q',r1,r2)
             local height = tonumber( string.match( stream, '"height":(%d+)' ) )
 
             -- Better than nothing
@@ -454,7 +455,7 @@ function parse()
                         -- FIXME: do this properly (see #24958)
                         stream_map = string.gsub( stream_map, '\\(["\\/])', '%1' )
                     else
-                        stream_map = string.match( line, '"formats":%[(.-)%]' )
+                        stream_map = string.match( line, '"adaptiveFormats":%[(.-)%]' )
                     end
                     if stream_map then
                         vlc.msg.dbg( "Found new-style parameters for youtube video stream, parsing..." )
