@@ -555,7 +555,9 @@ function parse()
 		table.insert(opts,  str)
 		table.insert(opts , "network-caching=1000")
 	end
-	return { path = path; name = title; description = description; artist = artist; arturl = arturl; options=opts; })
+	local p = {}
+	table.insert(p , { path = path; name = title; description = description; artist = artist; arturl = arturl; options=opts; })
+	return p
 	
 		
     elseif string.match( vlc.path, "/get_video_info%?" ) then -- video info API
