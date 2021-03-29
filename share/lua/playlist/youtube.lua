@@ -249,7 +249,6 @@ end
 -- Parse and pick our video stream URL (new-style parameters)
 function pick_stream( stream_map, js_url )
     local pick = nil
-
     local fmt = tonumber( get_url_param( vlc.path, "fmt" ) )
     if fmt then
         -- Legacy match from URL parameter
@@ -265,12 +264,11 @@ function pick_stream( stream_map, js_url )
         -- quality targets
         local prefres = vlc.var.inherit( nil, "preferred-resolution" )
         local bestres = nil
-
-         for r1,r2 in string.gmatch( stream_map, '{(.-)"signatureCipher":"(.-)"}' ) do
-			         stream= string.format('%q\"signatureCipher\":%q',r1,r2)
-            local height = tonumber( string.match( stream, '"height":(%d+)' ) )
-
-            -- Better than nothing
+		
+		 for r1,r2 in string.gmatch( stream_map, '{(.-)"signatureCipher":"(.-)"}' ) do
+			stream= string.format('%q\"signatureCipher\":%q',r1,r2)
+			local height = tonumber( string.match( r1, '"height":(%d+)' ) )
+			-- Better than nothing
             if not pick or ( height and ( not bestres
                 -- Better quality within limits
                 or ( ( prefres < 0 or height <= prefres ) and height > bestres )
@@ -281,6 +279,7 @@ function pick_stream( stream_map, js_url )
                 pick = stream
             end
         end
+		 
     end
 
     if not pick then
@@ -295,10 +294,45 @@ function pick_stream( stream_map, js_url )
         -- Scrambled signature: some assembly required
         local url = stream_url( cipher, js_url )
         if url then
+			vlc.msg.dbg(url)
             return url
         end
     end
     -- Unscrambled signature, already included in ready-to-use URL
+	
+    return string.match( pick, '"url":"(.-)"' )
+end
+
+function pick_audio_stream( stream_map, js_url )
+    local pick = nil
+	local audio_stream  = nil
+	 for r1,r2 in string.gmatch( stream_map, '{(.-)"signatureCipher":"(.-)"}' ) do
+		stream= string.format('%q\"signatureCipher\":%q',r1,r2)
+		local mime =  string.match( r1, '"mimeType":"(.-)"' ) 
+		if audio_stream == nil and string.match(mime , "audio") then
+			audio_stream = stream
+			pick = stream
+		end
+	end
+
+    if not pick then
+        return nil
+    end
+
+    -- Either the "url" or the "signatureCipher" parameter is present,
+    -- depending on whether the URL signature is scrambled.
+    local cipher = string.match( pick, '"signatureCipher":"(.-)"' )
+        or string.match( pick, '"[a-zA-Z]*[Cc]ipher":"(.-)"' )
+    if cipher then
+        -- Scrambled signature: some assembly required
+        local url = stream_url( cipher, js_url )
+        if url then
+			vlc.msg.dbg(url)
+            return url
+        end
+    end
+    -- Unscrambled signature, already included in ready-to-use URL
+	
     return string.match( pick, '"url":"(.-)"' )
 end
 
@@ -321,6 +355,7 @@ end
 
 -- Parse function.
 function parse()
+    local audio = nil
     if not string.match( vlc.path, "^www%.youtube%.com/" ) then
         -- Skin subdomain
         return { { path = vlc.access.."://"..string.gsub( vlc.path, "^([^/]*)/", "www.youtube.com/" ) } }
@@ -447,21 +482,27 @@ function parse()
                     url_map = string.gsub( url_map, "\\u0026", "&" )
                     path = pick_url( url_map, fmt, js_url )
                 end
-
                 -- New-style parameters
+				
+
+					
                 if not path then
                     local stream_map = string.match( line, '\\"formats\\":%[(.-)%]' )
+					
                     if stream_map then
                         -- FIXME: do this properly (see #24958)
-                        stream_map = string.gsub( stream_map, '\\(["\\/])', '%1' )
+			stream_map = string.gsub( stream_map, '\\(["\\/])', '%1' )
                     else
                         stream_map = string.match( line, '"adaptiveFormats":%[(.-)%]' )
+						
                     end
                     if stream_map then
-                        vlc.msg.dbg( "Found new-style parameters for youtube video stream, parsing..." )
+			vlc.msg.dbg( "Found new-style parameters for youtube video stream, parsing..." )
                         -- FIXME: do this properly (see #24958)
                         stream_map = string.gsub( stream_map, "\\u0026", "&" )
+			audio = pick_audio_stream(stream_map , js_url)
                         path = pick_stream( stream_map, js_url )
+					
                     end
                 end
 
@@ -508,9 +549,15 @@ function parse()
         if not arturl then
             arturl = get_arturl()
         end
-
-        return { { path = path; name = title; description = description; artist = artist; arturl = arturl } }
-
+	local opts = {}
+	if audio then
+		str = string.format('input-slave=%s',audio)
+		table.insert(opts,  str)
+		table.insert(opts , "network-caching=1000")
+	end
+	return { path = path; name = title; description = description; artist = artist; arturl = arturl; options=opts; })
+	
+		
     elseif string.match( vlc.path, "/get_video_info%?" ) then -- video info API
         local line = vlc.read( 1024*1024 ) -- data is on one line only
         if not line then
@@ -539,7 +586,6 @@ function parse()
             url_map = vlc.strings.decode_uri( url_map )
             path = pick_url( url_map, fmt, js_url )
         end
-
         -- New-style parameters
         if not path then
             local stream_map = string.match( line, '%%22formats%%22%%3A%%5B(.-)%%5D' )
